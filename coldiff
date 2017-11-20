@@ -1,0 +1,71 @@
+#!/usr/bin/env ruby
+require 'optparse'
+require 'csv'
+options = { in: [], notin: [] }
+
+OptionParser.new do |opts|
+  # banner and separator are the usage description showed with '--help' or '-h'
+  opts.banner = "Usage: coldiff --in file1,file2 --notin file3"
+  opts.separator "Finds out which IDs are in a file and not in another"
+  opts.separator "Options:"
+  # options (switch - true/false)
+  opts.on("-i", "--in FILES", Array, "List of files that contain IDs") do |in_file|
+    options[:in] = in_file
+  end
+  opts.on("-n", "--notin FILES", Array, "List of files that do not contain IDs") do |not_in_file|
+    options[:notin] = not_in_file
+  end
+end.parse!
+
+raise 'Please pass a file or more to --in option' if options[:in].empty?
+
+extracted = {}
+(options[:in] + options[:notin]).each do |file_and_column|
+  file_name, column = file_and_column.split(':')
+  column ||= 1
+  column = column.to_i
+  puts "Extracting data from #{file_name} column number #{column}"
+
+  if extracted[file_and_column].nil?
+    extracted[file_and_column] = []
+    CSV.foreach(file_name) do |row|
+      next if $. == 1
+      extracted[file_and_column] << row[column - 1]
+    end
+  end
+end
+
+output_folder_name = Time.now.utc.to_s.delete('UTC').strip.sub(' ', '-')
+Dir.mkdir(output_folder_name)
+
+in_comparand = options[:in].first
+options[:in][1..-1].each do |other_in|
+  puts "Computing what is both in #{in_comparand} and #{other_in}"
+  file_name = "#{output_folder_name}/IN (#{in_comparand.sub('.csv', '')})_and_IN (#{other_in.sub('.csv', '')}).csv"
+  result_array = extracted[in_comparand] & extracted[other_in]
+  next if result_array.empty?
+  CSV.open(file_name, "wb") do |csv|
+    csv << ['Result']
+    result_array.each do |elem|
+      csv << [elem]
+    end
+  end
+end
+
+options[:notin].each do |notin|
+  options[:in].each do |notin_in_comparand|
+    puts "Computing what is in #{notin_in_comparand} and not in #{notin}"
+    file_name = "#{output_folder_name}/IN (#{notin_in_comparand.sub('.csv', '')})_and_NOT_IN (#{notin.sub('.csv', '')}).csv"
+    result_array = extracted[notin_in_comparand] - extracted[notin]
+    next if result_array.empty?
+    CSV.open(file_name, "wb") do |csv|
+      csv << ['Result']
+      result_array.each do |elem|
+        csv << [elem]
+      end
+    end
+  end
+end
+
+
+puts "Done. Check output in #{output_folder_name}"
